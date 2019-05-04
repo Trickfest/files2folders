@@ -1,5 +1,6 @@
 ﻿using System;
 using System.ComponentModel.DataAnnotations;
+using System.IO;
 using McMaster.Extensions.CommandLineUtils;
 using McMaster.Extensions.CommandLineUtils.Validation;
 using static System.Console;
@@ -38,10 +39,60 @@ namespace files2folders
                     optionOperation.Value().Trim() :
                     COPY;
 
-                WriteLine($"Args: {source} {dest} {operation}");
+                WriteLine($"Starting execution - source: {source} | dest: {dest} | operation: {operation}");
+
+                ProcessFiles(source, dest, operation == MOVE);
             });
 
             return app.Execute(args);
+        }
+
+        private static bool ProcessFiles(string sourcePath, string destPath, bool moveFiles = false)
+        {
+            var files = Directory.GetFiles(sourcePath);
+            int fileCounter = 0;
+
+            foreach (string filename in files)
+            {
+                // don't copy system files like .DS_Store
+                if (Path.GetFileName(filename).StartsWith('.'))
+                {
+                    continue;
+                }
+                
+                var fileCreationTime = Directory.GetCreationTime(filename);
+
+                fileCounter++;
+
+                WriteLine($"{fileCounter}: Processing {Path.GetFileName(filename)} created on {fileCreationTime}");
+
+                var destFolder = GetDestFolder(destPath, fileCreationTime);
+
+                Directory.CreateDirectory(destFolder);
+
+                var destFilename = Path.Combine(destFolder, Path.GetFileName(filename));
+
+                if (moveFiles)
+                {
+                    File.Move(filename, Path.Combine(destFolder, destFilename));
+                }
+                else
+                {
+                    File.Copy(filename, Path.Combine(destFolder, destFilename));
+                }
+
+                // may or may not be necessary depending on the file system and OS
+                // but it doesn't hurt
+                File.SetCreationTime(destFilename, fileCreationTime);
+            }
+            return true;
+        }
+
+        private static string GetDestFolder(string destPath, DateTime fileCreationTime)
+        {
+            return Path.Combine(destPath,
+                fileCreationTime.Year.ToString("0000"),
+                fileCreationTime.Month.ToString("00"));
         }
     }
 
@@ -49,7 +100,6 @@ namespace files2folders
     {
         public ValidationResult GetValidationResult(CommandOption option, ValidationContext context)
         {
-            // This validator only runs if there is a value
             if (!option.HasValue()) return ValidationResult.Success;
 
             var val = option.Value().Trim();
